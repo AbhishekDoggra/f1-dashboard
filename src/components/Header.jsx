@@ -250,6 +250,7 @@ export const Header = ({
         </BrandSection>
 
         <MetaPills>
+          <CyclePill>Season Cycle #{cycle}</CyclePill>
           <StatusPill $connected={status === "connected"}>
             <StatusDot $connected={status === "connected"} />
             {status === "connected" ? "Live Stream Active" : "Connecting..."}

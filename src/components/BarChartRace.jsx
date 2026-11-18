@@ -59,15 +59,18 @@ const RankBadge = styled.div`
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  font-family: 'Orbitron', sans-serif;
+  font-family: "Orbitron", sans-serif;
   font-weight: 800;
   font-size: 0.95rem;
   flex-shrink: 0;
 
   background: ${(props) => {
-    if (props.$rank === 1) return "linear-gradient(135deg, #FFD700 0%, #B8860B 100%)";
-    if (props.$rank === 2) return "linear-gradient(135deg, #E0E0E0 0%, #9E9E9E 100%)";
-    if (props.$rank === 3) return "linear-gradient(135deg, #D48C46 0%, #8C4B18 100%)";
+    if (props.$rank === 1)
+      return "linear-gradient(135deg, #FFD700 0%, #B8860B 100%)";
+    if (props.$rank === 2)
+      return "linear-gradient(135deg, #E0E0E0 0%, #9E9E9E 100%)";
+    if (props.$rank === 3)
+      return "linear-gradient(135deg, #D48C46 0%, #8C4B18 100%)";
     return "#171a24";
   }};
 
@@ -91,7 +94,9 @@ const BarTrack = styled.div`
 
 const AnimatedBar = styled.div`
   height: 100%;
-  width: ${(props) => props.$width}%;
+  width: ${(props) => props.$width};
+  min-width: max-content;
+  max-width: 100%;
   background: ${(props) => props.$gradient};
   border-radius: 4px;
   transition: width 0.75s cubic-bezier(0.25, 1, 0.5, 1);
@@ -101,9 +106,10 @@ const AnimatedBar = styled.div`
   padding: 0 0.85rem;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   position: relative;
+  gap: 0.85rem;
 
   &::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 0;
     left: 0;
@@ -125,9 +131,9 @@ const BarLeft = styled.div`
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  overflow: hidden;
   white-space: nowrap;
   z-index: 1;
+  flex-shrink: 0;
 
   .number-pill {
     background: rgba(0, 0, 0, 0.45);
@@ -136,7 +142,7 @@ const BarLeft = styled.div`
     font-weight: 800;
     padding: 0.15rem 0.4rem;
     border-radius: 3px;
-    font-family: 'Orbitron', sans-serif;
+    font-family: "Orbitron", sans-serif;
   }
 
   .name {
@@ -163,18 +169,19 @@ const BarRight = styled.div`
   flex-shrink: 0;
 
   .race-points {
-    background: rgba(0, 0, 0, 0.3);
+    background: rgba(0, 0, 0, 0.35);
     color: #fff;
     font-size: 0.75rem;
     font-weight: 800;
     padding: 0.15rem 0.45rem;
     border-radius: 3px;
+    font-family: "Orbitron", sans-serif;
   }
 
   .total-points {
-    font-family: 'Orbitron', sans-serif;
-    font-weight: 900;
-    font-size: 1rem;
+    font-family: "Orbitron", sans-serif;
+    font-weight: 800;
+    font-size: 0.95rem;
     color: ${(props) => props.$textColor};
     text-shadow: ${(props) =>
       props.$textColor === "#FFF" ? "0 1px 3px rgba(0,0,0,0.8)" : "none"};
@@ -215,9 +222,42 @@ const EmptyState = styled.div`
 
 export const BarChartRace = ({ data, activeTab }) => {
   const isDrivers = activeTab === "drivers";
-  const items = isDrivers
+
+  // Primary source: computed cumulative standings from f1_analysis
+  let items = isDrivers
     ? data?.driverStandings || []
     : data?.constructorStandings || [];
+
+  // Fallback: if raw race results are received directly from ingestion
+  if (items.length === 0 && Array.isArray(data?.results) && data.results.length > 0) {
+    if (isDrivers) {
+      items = data.results
+        .map((row, idx) => ({
+          rank: parseInt(row.Position || row.position, 10) || idx + 1,
+          driver: (row.Driver || row.driver || "Unknown Driver").trim(),
+          team: (row.Team || row.team || "Unknown Team").trim(),
+          carNumber: row.No || row.no || "",
+          racePoints: parseFloat(row.Points || row.points || 0) || 0,
+          totalPoints: parseFloat(row.Points || row.points || 0) || 0,
+        }))
+        .sort((a, b) => b.totalPoints - a.totalPoints || a.rank - b.rank);
+    } else {
+      const teamPointsMap = {};
+      data.results.forEach((row) => {
+        const team = (row.Team || row.team || "Unknown Team").trim();
+        const pts = parseFloat(row.Points || row.points || 0) || 0;
+        teamPointsMap[team] = (teamPointsMap[team] || 0) + pts;
+      });
+      items = Object.entries(teamPointsMap)
+        .map(([team, totalPoints]) => ({
+          team,
+          totalPoints,
+          racePoints: totalPoints,
+        }))
+        .sort((a, b) => b.totalPoints - a.totalPoints)
+        .map((item, idx) => ({ ...item, rank: idx + 1 }));
+    }
+  }
 
   if (items.length === 0) {
     return (
@@ -225,9 +265,11 @@ export const BarChartRace = ({ data, activeTab }) => {
         <EmptyState>
           <h3>🏁 Waiting for Live Telemetry Stream...</h3>
           <p>
-            Make sure your <strong>Ingestion</strong>, <strong>Processing</strong>, and <strong>Output</strong> services are running.
+            Make sure your <strong>Ingestion</strong>,{" "}
+            <strong>Processing</strong>, and <strong>Output</strong> services
+            are running.
           </p>
-          <div className="hint">WebSocket connected to ws://localhost:3002</div>
+          <div className="hint">{`WebSocket connected to ${import.meta.env.VITE_WS_URL}`}</div>
         </EmptyState>
       </ChartContainer>
     );
@@ -253,21 +295,20 @@ export const BarChartRace = ({ data, activeTab }) => {
       <BarsList>
         {items.map((item) => {
           const teamColors = getTeamColor(item.team);
-          // Minimum width ensures driver name is always visible even with 0 points
-          const pctWidth = Math.max(
-            15,
-            Math.min(100, (item.totalPoints / maxPoints) * 100)
-          );
+
+          // Base length fits the driver details + points badge snugly
+          const minWidth = isDrivers ? "13.5rem" : "15.5rem";
+          const pointsRatio =
+            maxPoints > 0 ? Math.max(0, item.totalPoints) / maxPoints : 0;
+          // The bar length is determined by total points: driver details + points expansion
+          const barWidth = `calc(${minWidth} + ${pointsRatio} * (100% - ${minWidth}))`;
 
           return (
             <RowWrapper key={isDrivers ? item.driver : item.team}>
               <RankBadge $rank={item.rank}>P{item.rank}</RankBadge>
 
               <BarTrack>
-                <AnimatedBar
-                  $width={pctWidth}
-                  $gradient={teamColors.gradient}
-                >
+                <AnimatedBar $width={barWidth} $gradient={teamColors.gradient}>
                   <BarLeft $textColor={teamColors.textColor}>
                     {isDrivers && item.carNumber && (
                       <span className="number-pill">#{item.carNumber}</span>
@@ -275,9 +316,6 @@ export const BarChartRace = ({ data, activeTab }) => {
                     <span className="name">
                       {isDrivers ? item.driver : item.team}
                     </span>
-                    {isDrivers && (
-                      <span className="team-label">({item.team})</span>
-                    )}
                   </BarLeft>
 
                   <BarRight $textColor={teamColors.textColor}>
